@@ -2,52 +2,111 @@ import os
 import rpyc
 import time
 import random
+import threading
 
-from dataclasses import dataclass
+from dataclasses import dataclass 
 
+"""======================================================================================================================================"""
+deleteClosedRequests = False
+requestRate = 50
+"""======================================================================================================================================"""
+
+@dataclass
 class request:
     reqID: int
     keyword: str
-    text: str
-    response: int
-    e2eTime: int
+    text: str  
+    response: int = -1  
+    e2eTime: int = -1
 
 
-req: list[request] = []
+req: list[request] = []          #list of requests sent
+req_lock = threading.Lock()      #protects req list from race conditions
 currID = 0
 
-words: list[str] = ["sheep", "cow", "now", "then", "the", "end", "out", "eagle", "Monday", "geometry", "mathematics", "find", "crowd", "and", "time", "place", "go", "just", "minutes", "hours", "plug", "victory", "enemy", "friend", "ally", "we", "straight", "corner", "run", "attempt", "defeat", "failure", "welcome", "lap", "music", "goodbye", "come", "leave", "my", "your", "you", "he", "she", "puts", "takes", "gives", "look", "see", "visit", "need", "weekend", "gone", "option", "moment", "band", "stage", "glove", "stone", "power", "energy", "someone", "seconds", "first", "second", "man", "woman", "red", "black", "blue", "white", "green", "yellow", "white", "purple", "brown", "dark", "light", "orange", "tree", "plant", "flower", "read", "reality", "walk", "drive", "car", "plane", "bike", "bicycle", "bus", "taxi", "helicopter", "boat", "ship", "vehicle", "transport", "move", "engage", "miss", "hit", "sing", "song"]
+
+words: list[str] = ["now", "then", "the", "end", "out", "eagle", "Monday", "geometry", "find", "crowd", "and", "time", "place", "go", "just", "minutes", "hours", "plug", "victory", "enemy", "friend", "ally", "we", "straight", "corner", "run", "attempt", "defeat", "failure", "welcome", "lap", "music", "goodbye", "come", "leave", "my", "your", "you", "he", "she", "puts", "takes", "gives", "look", "see", "visit", "need", "weekend", "gone", "option", "moment", "band", "stage", "glove", "stone", "power", "energy", "someone", "seconds", "first", "second", "man", "woman", "red", "black", "blue", "white", "green", "yellow", "white", "purple", "brown", "dark", "light", "orange", "tree", "plant", "flower", "read", "reality", "walk", "drive", "car", "plane", "bike", "bicycle", "bus", "taxi", "helicopter", "boat", "ship", "vehicle", "transport", "move", "engage", "miss", "hit", "sing", "song"]
 fileNames: list[str] = []
 
-def newRequest():
-    
-    req.append(request(
-        reqID=currID,
-        keyword=random.choice(words),                  #random word
-        text=random.choice(fileNames),                 #from random text that is in the folder
-        response = -1,
-        e2eTime = time.time_ns() // 1000        #time in μs
-        
-    ))
-
-    currID=currID+1
 
 def readAvailableFileNames():
-    fileNames = os.listdir("SampleTexts")
-    fileNames = [name[:-4] for name in fileNames]
-    #print(fileNames)
+    global fileNames
+    fileNames = os.listdir("SampleTexts")         #read every file name in the folder
+    fileNames = [name[:-4] for name in fileNames]     #remove .txt
+
+
+def newRequest() -> request:
+    global currID
+    r = request(
+        reqID=currID,                             #assign the next id
+        keyword=random.choice(words),             #random word from list
+        text=random.choice(fileNames),            #random text file from folder
+        e2eTime=time.time_ns() // 1000,           #request creation time in μs
+    )
+    with req_lock:                                #lock while modifying the shared list
+        req.append(r)                             #append request to the list
+    currID += 1                                   #increment id
+    return r
+
+
+def closeRequest(id:int, resp:int):
+    with req_lock:
+        if deleteClosedRequests:
+            for i in range(len(req) - 1, -1, -1):
+                if req[i].reqID == id:
+                    r = req.pop(i)
+                    r.response = resp
+                    r.e2eTime = (time.time_ns() // 1000) - r.e2eTime
+                    return r
+        else:
+            for r in reversed(req):
+                if r.reqID == id:
+                    r.response = resp
+                    r.e2eTime = (time.time_ns() // 1000) - r.e2eTime
+                    return r
+    #no fail protection, not needed but should exist
+
+
+def receiveResponse(async_result, done_sem: threading.Semaphore):
+    id, resp = async_result.value           #unpack the id and response sent back by the server
+    r = closeRequest(id, resp)              #close the request and get its data to print them
+    
+    print(f"id={r.reqID} keyword={r.keyword} text={r.text} "
+          f"response={r.response} latency={r.e2eTime}μs")
+    done_sem.release()                      #wake up main thread's wait-count by one
+
+
+def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore):
+    interval = 1.0 / rate_hz                      #time between requests
+    next_send = time.perf_counter()               #scheduled time for the next send
+
+    while True:
+        r = newRequest()                                        #creates a new request and stores it in req[]
+        async_result = async_count(r.reqID, r.keyword, r.text)  #sends the request, non-blocking (returns instantly)
+        async_result.add_callback(
+            lambda ar, s=done_sem: receiveResponse(ar, s)       #hand off response handling to receiveResponse
+        )
+
+        next_send += interval                     #next send time
+        sleep_time = next_send - time.perf_counter()
+        if sleep_time > 0:                        #only sleep if we're ahead of schedule
+            time.sleep(sleep_time)                #wait until it's time for the next request
+
 
 def main():
     readAvailableFileNames()
-    #initializes rpyc connection to server1 on port 18861
-    #conn = rpyc.connect("server1", 18861)
+
+    conn = rpyc.connect("server1", 18861)         #open connection to the server using rpyc
+    rpyc.BgServingThread(conn)                    #background thread that lets callbacks fire as replies arrive
+
+    async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
+    done_sem = threading.Semaphore(0)             #starts at 0; each response releases it once
+
+    sendRequests(async_count, requestRate, done_sem)   #fire off all requests
+
+    while True:
+        pass
+
 
 if __name__ == "__main__":
     main()
-
-
-#calls function count on the server with arguments 
-#result = conn.root.count("keyword", "file.txt")
-
-#closes the connection
-#conn.close()
