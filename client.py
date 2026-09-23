@@ -96,8 +96,8 @@ def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore):
 def main():
     readAvailableFileNames()
 
-    conn = rpyc.connect("server1", 18861)         #open connection to the server using rpyc
-    rpyc.BgServingThread(conn)                    #background thread that lets callbacks fire as replies arrive
+    conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
+    rpyc.BgServingThread(conn, serve_interval=0.1, sleep_interval=0)                    #background thread that lets callbacks fire as replies arrive
 
     async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
     done_sem = threading.Semaphore(0)             #starts at 0; each response releases it once

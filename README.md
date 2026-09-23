@@ -8,6 +8,13 @@ Python 3.14.7
 
 ## Setup Instructions
 
+### Terminal 1: start Redis and the server
+
+docker compose up -d redis
+$env:REDIS_HOST="localhost"; python -m server.server
+
+### Terminal 2: run the client
+$env:SERVER_HOST="localhost"; python client.py
 ## Execution Instructions
 
 ## Documentation

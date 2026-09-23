@@ -9,8 +9,8 @@ services:
     networks:
       - wordcount-net
   
-  server:
-  client:
+  #server:
+  #client:
   
 networks:
   wordcount-net:
