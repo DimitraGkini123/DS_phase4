@@ -9,6 +9,7 @@ from dataclasses import dataclass
 """======================================================================================================================================"""
 deleteClosedRequests = False
 requestRate = 50
+numRequests = 1000
 """======================================================================================================================================"""
 
 @dataclass
@@ -76,11 +77,11 @@ def receiveResponse(async_result, done_sem: threading.Semaphore):
     done_sem.release()                      #wake up main thread's wait-count by one
 
 
-def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore):
+def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore, num_requests: int):
     interval = 1.0 / rate_hz                      #time between requests
     next_send = time.perf_counter()               #scheduled time for the next send
 
-    while True:
+    for _ in range(num_requests):
         r = newRequest()                                        #creates a new request and stores it in req[]
         async_result = async_count(r.reqID, r.keyword, r.text)  #sends the request, non-blocking (returns instantly)
         async_result.add_callback(
@@ -102,7 +103,7 @@ def main():
     async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
     done_sem = threading.Semaphore(0)             #starts at 0; each response releases it once
 
-    sendRequests(async_count, requestRate, done_sem)   #fire off all requests
+    sendRequests(async_count, requestRate, done_sem, numRequests)   #fire off all requests
 
     while True:
         pass

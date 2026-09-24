@@ -9,5 +9,5 @@ def calculate_occurrences(text, keyword):
         content = f.read()
     pattern = r"\b" + re.escape(keyword) + r"\b"
     count = len(re.findall(pattern, content, flags=re.IGNORECASE))
-    cache.set(make_key(text, keyword), count)
+    cache.set(make_key(text, keyword), count)  #store newly calculated result in server 
     return count
