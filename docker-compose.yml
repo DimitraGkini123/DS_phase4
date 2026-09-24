@@ -10,6 +10,11 @@ services:
       - wordcount-net
   
   #server:
+  loadbalancer:
+    build: .
+    command: python -u loadbalancer/loadbalancer.py
+    depends_on: [server1, server2, server3]
+    networks: [wordcount-net]
   server1:
     build: .
     command: python -u -m server.server
