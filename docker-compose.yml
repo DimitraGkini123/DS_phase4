@@ -10,8 +10,21 @@ services:
       - wordcount-net
   
   #server:
-  #client:
-  
+  server1:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
+  client:
+    build: .
+    command: python -u client/client.py
+    environment:
+      SERVER_HOST: server1
+      SERVER_PORT: "18861"
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [server1]
+    networks: [wordcount-net]
 networks:
   wordcount-net:
     driver: bridge
