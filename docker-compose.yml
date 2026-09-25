@@ -8,8 +8,6 @@ services:
       - "6379:6379"
     networks:
       - wordcount-net
-  
-  #server:
   loadbalancer:
     build: .
     command: python -u loadbalancer/loadbalancer.py
@@ -42,6 +40,7 @@ services:
     volumes: ["./SampleTexts:/app/SampleTexts"]
     depends_on: [loadbalancer]
     networks: [wordcount-net]
+
 networks:
   wordcount-net:
     driver: bridge

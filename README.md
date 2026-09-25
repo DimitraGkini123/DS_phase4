@@ -7,19 +7,19 @@
 The asyncio code for the load balancer is based on these two documentation pages:
 
 https://docs.python.org/3/library/asyncio-task.html
+
 https://docs.python.org/3/library/asyncio-stream.html#examples
 
 And now server1 is hardcoded.
 
-## Setup Instructions
+## Setup/Execution Instructions
 
 docker compose up --build
-
-## Execution Instructions
 
 ## Documentation
 
 RPyC: https://rpyc.readthedocs.io/en/latest/
+
 Asyncio: https://docs.python.org/3/library/asyncio.html
 
 diagram: drawio
