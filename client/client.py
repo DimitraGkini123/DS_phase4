@@ -105,7 +105,17 @@ def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore, num
 def main():
     readAvailableFileNames()
 
-    conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
+    #conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
+    host, port = os.getenv("SERVER_HOST", "server1"), int(os.getenv("SERVER_PORT", 18861))
+    for attempt in range(20):
+        try:
+            conn = rpyc.connect(host, port)
+            break
+        except ConnectionRefusedError:
+            print(f"server not ready, retrying ({attempt + 1}/20)")
+            time.sleep(0.5)
+    else:
+        raise SystemExit(f"could not connect to {host}:{port}")
     rpyc.BgServingThread(conn, serve_interval=0.1, sleep_interval=0)                    #background thread that lets callbacks fire as replies arrive
 
     async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately

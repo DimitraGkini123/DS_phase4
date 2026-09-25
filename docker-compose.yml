@@ -8,10 +8,39 @@ services:
       - "6379:6379"
     networks:
       - wordcount-net
-  
-  #server:
-  #client:
-  
+  loadbalancer:
+    build: .
+    command: python -u loadbalancer/loadbalancer.py
+    depends_on: [server1, server2, server3]
+    networks: [wordcount-net]
+  server1:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
+  server2:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
+  server3:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
+  client:
+    build: .
+    command: python -u client/client.py
+    environment:
+      SERVER_HOST: loadbalancer
+      SERVER_PORT: "18861"
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [loadbalancer]
+    networks: [wordcount-net]
+
 networks:
   wordcount-net:
     driver: bridge
