@@ -21,14 +21,26 @@ services:
     volumes: ["./SampleTexts:/app/SampleTexts"]
     depends_on: [redis]
     networks: [wordcount-net]
+  server2:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
+  server3:
+    build: .
+    command: python -u -m server.server
+    volumes: ["./SampleTexts:/app/SampleTexts"]
+    depends_on: [redis]
+    networks: [wordcount-net]
   client:
     build: .
     command: python -u client/client.py
     environment:
-      SERVER_HOST: server1
+      SERVER_HOST: loadbalancer
       SERVER_PORT: "18861"
     volumes: ["./SampleTexts:/app/SampleTexts"]
-    depends_on: [server1]
+    depends_on: [loadbalancer]
     networks: [wordcount-net]
 networks:
   wordcount-net:
