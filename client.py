@@ -1,4 +1,5 @@
 import os
+import csv
 import rpyc
 import time
 import random
@@ -7,7 +8,7 @@ import threading
 from dataclasses import dataclass 
 
 """======================================================================================================================================"""
-deleteClosedRequests = False
+deleteClosedRequests = False    #set to TRUE for long tests - side effect: will disable latency logs
 requestRate = 50
 numRequests = 1000
 """======================================================================================================================================"""
@@ -29,6 +30,13 @@ currID = 0
 words: list[str] = ["cow", "sheep", "now", "then", "the", "end", "out", "eagle", "Monday", "geometry", "find", "crowd", "and", "time", "place", "go", "just", "minutes", "hours", "plug", "victory", "enemy", "friend", "ally", "we", "straight", "corner", "run", "attempt", "defeat", "failure", "welcome", "lap", "music", "goodbye", "come", "leave", "my", "your", "you", "he", "she", "puts", "takes", "gives", "look", "see", "visit", "need", "weekend", "gone", "option", "moment", "band", "stage", "glove", "stone", "power", "energy", "someone", "seconds", "first", "second", "man", "woman", "red", "black", "blue", "white", "green", "yellow", "white", "purple", "brown", "dark", "light", "orange", "tree", "plant", "flower", "read", "reality", "walk", "drive", "car", "plane", "bike", "bicycle", "bus", "taxi", "helicopter", "boat", "ship", "vehicle", "transport", "move", "engage", "miss", "hit", "sing", "song", "cat", "dog", "shop", "buy", "sell", "make", "break", "fix", "repair", "on", "in", "at", "over", "under", "begin", "end", "study", "code", "cable", "wire", "speak", "deal", "feel", "touch", "smell", "taste", "ice", "fire", "water", "earth", "moon", "stars", "mars", "sun", "sea", "wall", "paint", "sword", "gun", "weapon", "pistol", "bullet", "fuse", "connect", "disconnect", "lamp", "switch", "route", "way", "road", "street", "sidewalk", "market", "mall", "city", "town", "country", "nation", "village", "person", "citizen", "die", "live", "health", "happy", "sad", "dirty", "clean", "poor", "rich", "pizza", "souvlaki", "cream", "fresh", "old", "new", "juice", "wine", "soda", "cola", "milk", "shake", "milkshake", "coffee", "chocolate", "cake", "bread", "salt", "pepper", "mint", "tooth", "breath", "air", "wind", "windy", "calm", "angry", "rain", "thunder", "storm", "thunderstorm", "hail", "lightning", "cloud", "cloudy", "station", "master", "key", "lock", "smith", "supply", "demand", "blood", "bone", "bones", "mind", "soul", "body", "hand", "legs", "face", "nose", "mouth", "ears", "lips", "pad", "table", "tower", "wizard", "knight", "gate", "knights", "gates", "tables", "pads", "parking", "garage", "home", "house", "return", "trip"]
 fileNames: list[str] = []
 
+def exportToCSV(filename: str = "clientLog.csv"):
+    with req_lock:                                            #lock while reading the shared list
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["reqID", "keyword", "text", "response", "e2eTime_us"])   #header row
+            for r in req:
+                writer.writerow([r.reqID, r.keyword, r.text, r.response, r.e2eTime])
 
 def readAvailableFileNames():
     global fileNames
@@ -105,8 +113,15 @@ def main():
 
     sendRequests(async_count, requestRate, done_sem, numRequests)   #fire off all requests
 
+    for _ in range(sent):
+        done_sem.acquire()
+    
+    conn.close()
+    exportToCSV()
+
     while True:
         pass
+        
 
 
 if __name__ == "__main__":
