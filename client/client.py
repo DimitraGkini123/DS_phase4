@@ -125,7 +125,7 @@ def main():
     readAvailableFileNames()
 
     #conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
-    host, port = os.getenv("SERVER_HOST", "server1"), int(os.getenv("SERVER_PORT", 18861))
+    host, port = os.getenv("SERVER_HOST", "loadbalancer"), int(os.getenv("SERVER_PORT", 18861))
     for attempt in range(20):
         try:
             conn = rpyc.connect(host, port)
