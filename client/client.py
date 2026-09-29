@@ -13,6 +13,7 @@ exportLogs = True
 requestRate = 50
 numRequests = 1000
 rollingAveragePeriod = 3        #defines the period of the rolling average latency
+NUM_CONNECTIONS = 6
 """======================================================================================================================================"""
 
 @dataclass
@@ -104,12 +105,16 @@ def receiveResponse(async_result, done_sem: threading.Semaphore):
     done_sem.release()                      #wake up main thread's wait-count by one
 
 
-def sendRequests(async_count, rate_hz: float, done_sem: threading.Semaphore, num_requests: int):
+def sendRequests(async_counts, rate_hz: float, done_sem: threading.Semaphore, num_requests: int):
     interval = 1.0 / rate_hz                      #time between requests
     next_send = time.perf_counter()               #scheduled time for the next send
 
-    for _ in range(num_requests):
+    for i in range(num_requests):
         r = newRequest()                                        #creates a new request and stores it in req[]
+
+        # use connections in round-robin
+        async_count = async_counts[i % len(async_counts)]
+
         async_result = async_count(r.reqID, r.keyword, r.text)  #sends the request, non-blocking (returns instantly)
         async_result.add_callback(
             lambda ar, s=done_sem: receiveResponse(ar, s)       #hand off response handling to receiveResponse
@@ -126,26 +131,38 @@ def main():
 
     #conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
     host, port = os.getenv("SERVER_HOST", "server1"), int(os.getenv("SERVER_PORT", 18861))
-    for attempt in range(20):
-        try:
-            conn = rpyc.connect(host, port)
-            break
-        except ConnectionRefusedError:
-            print(f"server not ready, retrying ({attempt + 1}/20)")
-            time.sleep(0.5)
-    else:
-        raise SystemExit(f"could not connect to {host}:{port}")
-    rpyc.BgServingThread(conn, serve_interval=0.1, sleep_interval=0)                    #background thread that lets callbacks fire as replies arrive
-
-    async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
+    connections = []
+    async_counts = []
+    bg_threads = []
+    for i in range(NUM_CONNECTIONS):
+        for attempt in range(20):
+            try:
+                conn = rpyc.connect(host, port)
+                print(f"Opened connection {i + 1}/{NUM_CONNECTIONS}")
+                break
+            except ConnectionRefusedError:
+                print(f"server not ready, retrying ({attempt + 1}/20)")
+                time.sleep(0.5)
+        else:
+            raise SystemExit(f"could not connect to {host}:{port}")
+        connections.append(conn)
+        bg = rpyc.BgServingThread(conn, serve_interval=0.1, sleep_interval=0)  
+                        #background thread that lets callbacks fire as replies arrive
+        bg_threads.append(bg)
+        #async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
+        async_counts.append( rpyc.async_(conn.root.count))
     done_sem = threading.Semaphore(0)             #starts at 0; each response releases it once
 
-    sendRequests(async_count, requestRate, done_sem, numRequests)   #fire off all requests
+    sendRequests(async_counts, requestRate, done_sem, numRequests)   #fire off all requests
 
     for _ in range(numRequests):
         done_sem.acquire()
     
-    conn.close()
+    for bg in bg_threads:
+        bg.stop()
+
+    for conn in connections:
+        conn.close()
     if exportLogs:
         exportToCSV()
         print("LOG FILE EXPORTED")
