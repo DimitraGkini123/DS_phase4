@@ -3,6 +3,9 @@
 import rpyc
 from rpyc.utils.server import ThreadedServer
 
+import threading
+from server.resource_agent import resource_agent
+
 from server.redis_client import get_result
 from server.occurrences import calculate_occurrences
 
@@ -25,7 +28,16 @@ class CountService(rpyc.Service):
         return reqID, result
 
 ##starts the server
+## the server listens on port 18861 and 1900 at the same time.
+## 18861 --> client requests 
+## 19000 --> resource metrics 
 if __name__ == "__main__":
+
+    threading.Thread(
+        target=resource_agent,
+        daemon=True
+    ).start()
+
     print(f"Server listening on port {PORT}")
 
     server = ThreadedServer(

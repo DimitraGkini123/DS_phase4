@@ -11,7 +11,7 @@ from dataclasses import dataclass
 deleteClosedRequests = False    #set to TRUE for long tests - side effect: will disable latency logs
 exportLogs = True
 requestRate = 50
-numRequests = 1000
+numRequests = 40
 rollingAveragePeriod = 3        #defines the period of the rolling average latency
 NUM_CONNECTIONS = 6
 """======================================================================================================================================"""
