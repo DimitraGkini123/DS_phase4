@@ -11,9 +11,9 @@ from dataclasses import dataclass
 deleteClosedRequests = False    #set to TRUE for long tests - side effect: will disable latency logs
 exportLogs = True
 requestRate = 50
-numRequests = 40
+numRequests = 1000
 rollingAveragePeriod = 3        #defines the period of the rolling average latency
-NUM_CONNECTIONS = 6
+NUM_CONNECTIONS = 1
 """======================================================================================================================================"""
 
 @dataclass
@@ -35,7 +35,9 @@ fileNames: list[str] = []
 latencyList: list[int] = []
 
 def exportToCSV():
-    filename = f"clientLog_{requestRate}_{numRequests}.csv"
+    #filename = f"clientLog_{requestRate}_{numRequests}.csv"
+    filename = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            f"clientLog_{requestRate}_{numRequests}_{NUM_CONNECTIONS}.csv")
     with req_lock:
         with open(filename, "w", newline="") as f:
             writer = csv.writer(f)
@@ -168,7 +170,7 @@ def main():
         print("LOG FILE EXPORTED")
 
     print("CLIENT HAS FINISHED EXECUTING")
-    while True:
+    while False:
         pass
         
 

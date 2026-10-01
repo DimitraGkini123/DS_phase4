@@ -37,7 +37,9 @@ services:
     environment:
       SERVER_HOST: loadbalancer
       SERVER_PORT: "18861"
-    volumes: ["./SampleTexts:/app/SampleTexts"]
+    volumes: 
+      - ./SampleTexts:/app/SampleTexts
+      - ./client:/app/client
     depends_on: [loadbalancer]
     networks: [wordcount-net]
 
