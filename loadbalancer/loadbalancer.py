@@ -1,13 +1,12 @@
 import asyncio
 
 SERVERS = [
-    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "response_time": 0.0, "cpu" : 0.0, "memory" : 0.0},
-    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "response_time": 0.0, "cpu" : 0.0, "memory" : 0.0},
-    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "response_time": 0.0, "cpu" : 0.0, "memory" : 0.0},
+    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0},
+    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0},
+    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0},
 ]
 PORT = 18861
 #ALGORITHM = "least_connections" 
-#ALGORITHM = "least_response_time"
 ALGORITHM = "resource_based"
 
 async def pipe(reader, writer):
@@ -30,13 +29,6 @@ def least_connections():
         SERVERS,
         key=lambda server: server["connections"]
     )
-
-def least_response_time(servers):
-    return min(
-        servers,
-        key=lambda server: server["response_time"]
-    )
-
 def resource_based(servers):
 
     #calculate score for each server.
@@ -119,9 +111,6 @@ async def choose_server():
     if ALGORITHM == "least_connections":
         return least_connections()
     
-    elif ALGORITHM == "least_response_time":
-        return least_response_time(SERVERS)
-
     elif ALGORITHM == "resource_based":
         await asyncio.gather(
             *[
