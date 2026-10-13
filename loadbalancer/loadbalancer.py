@@ -61,7 +61,18 @@ def resource_based(servers):
                 f"SCORE={server['score']:.1f}"
             )
 
-    return min( servers, key=lambda server: server["score"] ) 
+    min_score = min(
+        server["score"]
+        for server in servers
+    )
+
+    candidates = [
+        server
+        for server in servers
+        if server["score"] == min_score
+    ]
+
+    return random.choice(candidates)
 
 async def get_resources(server):
     try:
