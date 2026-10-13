@@ -1,4 +1,6 @@
 import asyncio
+import os
+import random
 
 SERVERS = [
     {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0},
@@ -6,8 +8,7 @@ SERVERS = [
     {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0},
 ]
 PORT = 18861
-#ALGORITHM = "least_connections" 
-ALGORITHM = "resource_based"
+ALGORITHM = os.getenv("LB_ALGORITHM", "least_connections")
 
 async def pipe(reader, writer):
     try:
@@ -25,10 +26,19 @@ async def pipe(reader, writer):
 
 #define the algorithms
 def least_connections():
-    return min(
-        SERVERS,
-        key=lambda server: server["connections"]
+
+    min_connections = min(
+        server["connections"]
+        for server in SERVERS
     )
+
+    candidates = [
+        server
+        for server in SERVERS
+        if server["connections"] == min_connections
+    ]
+
+    return random.choice(candidates)
 def resource_based(servers):
 
     #calculate score for each server.
@@ -36,16 +46,16 @@ def resource_based(servers):
     #for now we define 50/50. Maybe later we have to put more wieght on cpu because our problem affects more the cpu due to the computations rather than the memory 
     for server in servers:
         server["score"] = (
-            0.5 * server["cpu"] +
-            0.5 * server["memory"]
+            0.7 * server["cpu"] +
+            0.3 * server["memory"]
         )
 
-    print(
-            f"{server['name']} | "
-            f"CPU={server['cpu']:.1f}% | "
-            f"MEM={server['memory']:.1f}% | "
-            f"SCORE={server['score']:.1f}"
-        )
+        print(
+                f"{server['name']} | "
+                f"CPU={server['cpu']:.1f}% | "
+                f"MEM={server['memory']:.1f}% | "
+                f"SCORE={server['score']:.1f}"
+            )
 
     return min( servers, key=lambda server: server["score"] ) 
 
@@ -77,13 +87,19 @@ async def handle_client(client_reader, client_writer):
     selected_server = await choose_server()
     selected_server["connections"] +=1
 
-    print(
-        f"Selected {selected_server['name']} | "
-        f"CPU={selected_server['cpu']:.1f}% | "
-        f"MEM={selected_server['memory']:.1f}% | "
-        f"SCORE={selected_server['score']:.1f} | "
-        f"connections={selected_server['connections']}"
-    )
+    if ALGORITHM == "resource_based":
+        print(
+            f"Selected {selected_server['name']} | "
+            f"CPU={selected_server['cpu']:.1f}% | "
+            f"MEM={selected_server['memory']:.1f}% | "
+            f"SCORE={selected_server['score']:.1f} | "
+            f"connections={selected_server['connections']}"
+        )
+    else:
+        print(
+            f"Selected {selected_server['name']} | "
+            f"connections={selected_server['connections']}"
+        )
 
 
     try:
@@ -125,6 +141,7 @@ async def choose_server():
         raise ValueError(f"Unknown algorithm: {ALGORITHM}")
 
 async def main():
+    print(f"Load balancing algorithm: {ALGORITHM}")
     server = await asyncio.start_server(
         handle_client, "0.0.0.0", PORT
     )

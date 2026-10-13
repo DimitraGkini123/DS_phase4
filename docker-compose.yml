@@ -11,6 +11,8 @@ services:
   loadbalancer:
     build: .
     command: python -u loadbalancer/loadbalancer.py
+    environment: 
+      LB_ALGORITHM: ${LB_ALGORITHM:-least_connections}
     depends_on: [server1, server2, server3]
     networks: [wordcount-net]
   server1:

@@ -10,10 +10,9 @@ from dataclasses import dataclass
 """======================================================================================================================================"""
 deleteClosedRequests = False    #set to TRUE for long tests - side effect: will disable latency logs
 exportLogs = True
-requestRate = 50
-numRequests = 1000
+requestRate = int(os.getenv("REQUEST_RATE", "50"))
+numRequests = int(os.getenv("NUM_REQUESTS", "1000"))
 rollingAveragePeriod = 3        #defines the period of the rolling average latency
-NUM_CONNECTIONS = 1
 """======================================================================================================================================"""
 
 @dataclass
@@ -37,7 +36,7 @@ latencyList: list[int] = []
 def exportToCSV():
     #filename = f"clientLog_{requestRate}_{numRequests}.csv"
     filename = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            f"clientLog_{requestRate}_{numRequests}_{NUM_CONNECTIONS}.csv")
+                               f"clientLog_{requestRate}_{numRequests}_Phase3.csv")
     with req_lock:
         with open(filename, "w", newline="") as f:
             writer = csv.writer(f)
@@ -70,7 +69,7 @@ def newRequest() -> request:
         reqID=currID,                             #assign the next id
         keyword=random.choice(words),             #random word from list
         text=random.choice(fileNames),            #random text file from folder
-        e2eTime=time.time_ns() // 1000,           #request creation time in μs
+        e2eTime=-1         #request creation time in μs
     )
     with req_lock:                                #lock while modifying the shared list
         req.append(r)                             #append request to the list
@@ -98,81 +97,158 @@ def closeRequest(id:int, resp:int):
     #no fail protection, not needed but should exist
 
 
-def receiveResponse(async_result, done_sem: threading.Semaphore):
-    id, resp = async_result.value           #unpack the id and response sent back by the server
-    r = closeRequest(id, resp)              #close the request and get its data to print them
-    
-    print(f"id={r.reqID} keyword={r.keyword} text={r.text} "
-          f"response={r.response} latency={r.e2eTime / 1000:.2f}ms RAL={rollingAverage() / 1000:.2f}ms")    #RAL = Rolling Average Latency
-    done_sem.release()                      #wake up main thread's wait-count by one
+def receiveResponse(
+    async_result,
+    done_sem: threading.Semaphore,
+    conn,
+    bg
+):
+    try:
+        id, resp = async_result.value
 
+        r = closeRequest(id, resp)
 
-def sendRequests(async_counts, rate_hz: float, done_sem: threading.Semaphore, num_requests: int):
-    interval = 1.0 / rate_hz                      #time between requests
-    next_send = time.perf_counter()               #scheduled time for the next send
-
-    for i in range(num_requests):
-        r = newRequest()                                        #creates a new request and stores it in req[]
-
-        # use connections in round-robin
-        async_count = async_counts[i % len(async_counts)]
-
-        async_result = async_count(r.reqID, r.keyword, r.text)  #sends the request, non-blocking (returns instantly)
-        async_result.add_callback(
-            lambda ar, s=done_sem: receiveResponse(ar, s)       #hand off response handling to receiveResponse
+        print(
+            f"id={r.reqID} "
+            f"keyword={r.keyword} "
+            f"text={r.text} "
+            f"response={r.response} "
+            f"latency={r.e2eTime / 1000:.2f}ms "
+            f"RAL={rollingAverage() / 1000:.2f}ms"
         )
 
-        next_send += interval                     #next send time
-        sleep_time = next_send - time.perf_counter()
-        if sleep_time > 0:                        #only sleep if we're ahead of schedule
-            time.sleep(sleep_time)                #wait until it's time for the next request
+    finally:
+        try:
+            bg.stop()
+        except Exception:
+            pass
 
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+        done_sem.release()
+
+
+def sendRequests(
+    host: str,
+    port: int,
+    rate_hz: float,
+    done_sem: threading.Semaphore,
+    num_requests: int
+):
+    interval = 1.0 / rate_hz
+    next_send = time.perf_counter()
+
+    for i in range(num_requests):
+
+        r = newRequest()
+
+        # NEW RPyC/TCP connection for every request
+        conn = rpyc.connect(host, port)
+
+        bg = rpyc.BgServingThread(
+            conn,
+            serve_interval=0.1,
+            sleep_interval=0
+        )
+
+        async_count = rpyc.async_(conn.root.count)
+
+        # latency starts immediately before sending the RPC
+        r.e2eTime = time.time_ns() // 1000
+
+        async_result = async_count(
+            r.reqID,
+            r.keyword,
+            r.text
+        )
+
+        async_result.add_callback(
+            lambda ar,
+                   s=done_sem,
+                   c=conn,
+                   b=bg:
+            receiveResponse(ar, s, c, b)
+        )
+
+        print(f"Opened connection for request {r.reqID}")
+
+        next_send += interval
+        sleep_time = next_send - time.perf_counter()
+
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+
+def latencyStatsMs():
+    with req_lock:
+        completed = sorted(
+            r.e2eTime for r in req
+            if r.e2eTime >= 0
+        )
+
+    if not completed:
+        return 0.0, 0.0
+
+    # Average
+    avg_ms = (sum(completed) / len(completed)) / 1000
+
+    # 99th percentile - nearest-rank method
+    p99_index = max(0, int(0.99 * len(completed) + 0.999999) - 1)
+    p99_ms = completed[p99_index] / 1000
+
+    return avg_ms, p99_ms
 
 def main():
+
+    random.seed(42)
+
     readAvailableFileNames()
 
-    #conn = rpyc.connect(os.getenv("SERVER_HOST", "server1"), 18861)          #open connection to the server using rpyc
-    host, port = os.getenv("SERVER_HOST", "server1"), int(os.getenv("SERVER_PORT", 18861))
-    connections = []
-    async_counts = []
-    bg_threads = []
-    for i in range(NUM_CONNECTIONS):
-        for attempt in range(20):
-            try:
-                conn = rpyc.connect(host, port)
-                print(f"Opened connection {i + 1}/{NUM_CONNECTIONS}")
-                break
-            except ConnectionRefusedError:
-                print(f"server not ready, retrying ({attempt + 1}/20)")
-                time.sleep(0.5)
-        else:
-            raise SystemExit(f"could not connect to {host}:{port}")
-        connections.append(conn)
-        bg = rpyc.BgServingThread(conn, serve_interval=0.1, sleep_interval=0)  
-                        #background thread that lets callbacks fire as replies arrive
-        bg_threads.append(bg)
-        #async_count = rpyc.async_(conn.root.count)    #wrap the remote method so calls return immediately
-        async_counts.append( rpyc.async_(conn.root.count))
-    done_sem = threading.Semaphore(0)             #starts at 0; each response releases it once
+    host = os.getenv(
+        "SERVER_HOST",
+        "loadbalancer"
+    )
 
-    sendRequests(async_counts, requestRate, done_sem, numRequests)   #fire off all requests
+    port = int(
+        os.getenv(
+            "SERVER_PORT",
+            "18861"
+        )
+    )
 
+    done_sem = threading.Semaphore(0)
+
+    print(
+        f"Starting test: "
+        f"{numRequests} requests @ {requestRate} req/s"
+    )
+
+    sendRequests(
+        host,
+        port,
+        requestRate,
+        done_sem,
+        numRequests
+    )
+
+    # wait until every request has received a response
     for _ in range(numRequests):
         done_sem.acquire()
-    
-    for bg in bg_threads:
-        bg.stop()
 
-    for conn in connections:
-        conn.close()
+    avg_latency, p99_latency = latencyStatsMs()
+
+    print(f"Average latency: {avg_latency:.2f} ms")
+    print(f"P99 latency: {p99_latency:.2f} ms")
+
+    print(f"Average latency: {avg_latency:.2f} ms")
+
     if exportLogs:
         exportToCSV()
         print("LOG FILE EXPORTED")
 
     print("CLIENT HAS FINISHED EXECUTING")
-    while False:
-        pass
-        
 
 
 if __name__ == "__main__":
