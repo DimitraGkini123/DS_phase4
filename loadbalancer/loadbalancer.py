@@ -2,13 +2,17 @@ import asyncio
 import os
 import random
 
+from icmplib import async_ping
+
 SERVERS = [
-    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0},
-    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0},
-    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0},
+    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
+    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
+    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
 ]
 PORT = 18861
 ALGORITHM = os.getenv("LB_ALGORITHM", "least_connections")
+PING_INTERVAL = 1.0 
+PING_TIMEOUT = 1.0    #seconds to wait for a ping reply before the server is considered offline
 
 async def pipe(reader, writer):
     try:
@@ -25,16 +29,16 @@ async def pipe(reader, writer):
         await writer.wait_closed()
 
 #define the algorithms
-def least_connections():
+def least_connections(servers):
 
     min_connections = min(
         server["connections"]
-        for server in SERVERS
+        for server in servers  
     )
 
     candidates = [
         server
-        for server in SERVERS
+        for server in servers
         if server["connections"] == min_connections
     ]
 
@@ -82,10 +86,82 @@ async def get_resources(server):
             f"{server['name']}: {e}"
         )
 
+async def check_server(server):
+    #send ONE ICMP echo request to the server and update its "alive" flag
+    reason = ""
+    try:
+        host = await async_ping(
+            server["name"],
+            count=1,
+            timeout=PING_TIMEOUT,
+            privileged=True
+        )
+        alive = host.is_alive
+        if not alive:
+            reason = "no ping reply"
+    except Exception as e:
+        alive = False
+        reason = repr(e)
+
+    if alive != server["alive"]:        #only print when the state changes
+        if alive:
+            print(f"HEALTH: {server['name']} is back ONLINE")
+        else:
+            print(f"HEALTH: {server['name']} is OFFLINE ({reason})")
+
+    server["alive"] = alive
+
+async def check_all_servers():
+    await asyncio.gather(
+        *[
+            check_server(server)
+            for server in SERVERS
+        ]
+    )
+
+async def health_check_loop():
+    #runs forever in the background, in parallel with handle_client()
+    while True:
+        await asyncio.sleep(PING_INTERVAL)
+        await check_all_servers()
+
+
+async def connect_to_server():
+    # pick a server and open a connection to it.
+    # If the picked server is unreachable (it died after the last ping), mark it OFFLINE
+    # immediately and pick another one, so the client request is not lost.
+    while True:
+        selected_server = await choose_server()
+
+        if selected_server is None:     # every server is offline
+            return None, None, None
+
+        selected_server["connections"] += 1     # moved here from handle_client (must happen right after choosing)
+
+        try:
+            server_reader, server_writer = await asyncio.open_connection(
+                selected_server["name"],
+                selected_server["port"]
+            )
+            return selected_server, server_reader, server_writer
+
+        except OSError as e:
+            selected_server["connections"] -= 1
+            selected_server["alive"] = False
+            print(
+                f"HEALTH: could not connect to {selected_server['name']} ({e!r}), "
+                f"marked OFFLINE, retrying on another server"
+            )
+
 async def handle_client(client_reader, client_writer):
 
-    selected_server = await choose_server()
-    selected_server["connections"] +=1
+    selected_server, server_reader, server_writer = await connect_to_server()
+
+    if selected_server is None: 
+        print("No healthy servers available, closing client connection")
+        client_writer.close()
+        await client_writer.wait_closed()
+        return
 
     if ALGORITHM == "resource_based":
         print(
@@ -104,11 +180,6 @@ async def handle_client(client_reader, client_writer):
 
     try:
 
-        server_reader, server_writer = await asyncio.open_connection(
-            selected_server["name"],
-            selected_server["port"]
-        )
-
         await asyncio.gather(
             pipe(client_reader, server_writer),   # client --> server
             pipe(server_reader, client_writer),   # server --> client
@@ -124,24 +195,37 @@ async def handle_client(client_reader, client_writer):
 
 
 async def choose_server():
+    available = [
+        server
+        for server in SERVERS
+        if server["alive"]
+    ]
+
+    if not available:
+        return None
+
     if ALGORITHM == "least_connections":
-        return least_connections()
+        return least_connections(available)
     
     elif ALGORITHM == "resource_based":
         await asyncio.gather(
             *[
                 get_resources(server)
-                for server in SERVERS
+                for server in available
             ]
         )
 
-        return resource_based(SERVERS)
+        return resource_based(available)
 
     else:
         raise ValueError(f"Unknown algorithm: {ALGORITHM}")
 
 async def main():
     print(f"Load balancing algorithm: {ALGORITHM}")
+
+    await check_all_servers()                                   # know the real state before accepting clients
+    health_task = asyncio.create_task(health_check_loop())      # start the heartbeat in the background
+
     server = await asyncio.start_server(
         handle_client, "0.0.0.0", PORT
     )

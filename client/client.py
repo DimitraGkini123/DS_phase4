@@ -10,8 +10,8 @@ from dataclasses import dataclass
 """======================================================================================================================================"""
 deleteClosedRequests = False    #set to TRUE for long tests - side effect: will disable latency logs
 exportLogs = True
-requestRate = int(os.getenv("REQUEST_RATE", "50"))
-numRequests = int(os.getenv("NUM_REQUESTS", "1000"))
+requestRate = int(os.getenv("REQUEST_RATE", "1"))
+numRequests = int(os.getenv("NUM_REQUESTS", "10000"))
 rollingAveragePeriod = 3        #defines the period of the rolling average latency
 """======================================================================================================================================"""
 
