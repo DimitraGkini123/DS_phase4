@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 
 rates = [50, 70, 90, 110, 130]
 
-phase2 = [70.86, 80.15, 94.44, 111.42, 73.89]
-least_connections = [26.64, 16.56, 20.63, 28.14, 17.20]
-resource_based = [9.41, 9.69, 10.38, 10.87, 10.38]
+phase2 = [8.40, 8.25, 8.89, 11.02, 14.68]
+least_connections = [9.23, 9.32, 9.61, 9.49, 9.68]
+resource_based = [9.26, 9.52, 10.46, 11.17, 11.40]
 
 plt.figure(figsize=(8, 5))
 
@@ -13,6 +13,7 @@ plt.plot(
     phase2,
     marker='o',
     linewidth=2,
+    color='tab:blue',
     label='Phase 2 - 1 Server'
 )
 
@@ -21,6 +22,7 @@ plt.plot(
     least_connections,
     marker='o',
     linewidth=2,
+    color='tab:orange',
     label='Phase 3 - Least Connections'
 )
 
@@ -29,6 +31,7 @@ plt.plot(
     resource_based,
     marker='o',
     linewidth=2,
+    color='tab:green',
     label='Phase 3 - Resource Based'
 )
 
@@ -38,6 +41,7 @@ plt.ylabel("Average execution latency (ms)")
 plt.title("Execution Latency: Phase 2 vs Phase 3")
 
 plt.xticks(rates)
+plt.ylim(bottom=0)
 
 plt.grid(True, alpha=0.3)
 plt.legend()
