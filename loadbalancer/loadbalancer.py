@@ -2,17 +2,25 @@ import asyncio
 import os
 import random
 
+import socket
 from icmplib import async_ping
 
 SERVERS = [
-    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
-    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
-    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True},
+    {"name": "server1", "port": 18861,"resource_port": 19000,"connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True, "missed_heartbeats": 0},
+    {"name": "server2", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True, "missed_heartbeats": 0},
+    {"name": "server3", "port": 18861, "resource_port": 19000, "connections": 0, "cpu" : 0.0, "memory" : 0.0, "alive": True, "missed_heartbeats": 0},
 ]
 PORT = 18861
 ALGORITHM = os.getenv("LB_ALGORITHM", "least_connections")
-PING_INTERVAL = 1.0 
+
+HEALTH_MODE = os.getenv("HEALTH_MODE", "icmp")
+HEALTH_CHECK_INTERVAL = 1.0
 PING_TIMEOUT = 1.0    #seconds to wait for a ping reply before the server is considered offline
+
+HEARTBEAT_PORT = 19001
+UDP_TIMEOUT = 0.5
+MAX_MISSED_HEARTBEATS = 3
+
 
 async def pipe(reader, writer):
     try:
@@ -97,7 +105,7 @@ async def get_resources(server):
             f"{server['name']}: {e}"
         )
 
-async def check_server(server):
+async def check_server_icmp(server):
     #send ONE ICMP echo request to the server and update its "alive" flag
     reason = ""
     try:
@@ -122,7 +130,23 @@ async def check_server(server):
 
     server["alive"] = alive
 
-async def check_all_servers():
+async def check_server(server):
+
+    if HEALTH_MODE == "icmp":
+
+        await check_server_icmp(server)
+
+    elif HEALTH_MODE == "udp":
+
+        await check_server_udp(server)
+
+    else:
+
+        raise ValueError(
+            f"Unknown health mode: {HEALTH_MODE}"
+        )
+
+async def check_all_servers():  ##we check all servers at the same time
     await asyncio.gather(
         *[
             check_server(server)
@@ -130,10 +154,79 @@ async def check_all_servers():
         ]
     )
 
+def udp_probe(server_name):
+
+    sock = socket.socket(  #create the udp socket
+        socket.AF_INET,  #ipv4
+        socket.SOCK_DGRAM  #udp
+    )
+
+    sock.settimeout(UDP_TIMEOUT)
+
+    try:
+
+        sock.sendto( #send a upd datagram with payload = HEALTH? in a specific server.
+            b"HEALTH?",
+            (server_name, HEARTBEAT_PORT)
+        )
+
+        data, _ = sock.recvfrom(1024)
+
+        return data == b"ALIVE"  ##if the response is alive -> return true
+
+    except (socket.timeout, OSError):
+        return False
+
+    finally:
+        sock.close()
+
+async def check_server_udp(server):
+
+    alive = await asyncio.to_thread(  ##keep healthcheck in the background
+        udp_probe,
+        server["name"]
+    )
+
+    if alive:
+
+        server["missed_heartbeats"] = 0
+
+        if not server["alive"]:
+            print(
+                f"HEALTH(UDP): {server['name']} "
+                f"is back ONLINE"
+            )
+
+        server["alive"] = True
+
+    else:
+
+        server["missed_heartbeats"] += 1
+
+        print(
+            f"HEALTH(UDP): missed heartbeat from "
+            f"{server['name']} "
+            f"({server['missed_heartbeats']}/"
+            f"{MAX_MISSED_HEARTBEATS})"
+        )
+
+        if (
+            server["missed_heartbeats"]
+            >= MAX_MISSED_HEARTBEATS
+            and server["alive"]
+        ):
+            server["alive"] = False
+
+            print(
+                f"HEALTH(UDP): {server['name']} "
+                f"is OFFLINE"
+            )
+
+
 async def health_check_loop():
     #runs forever in the background, in parallel with handle_client()
     while True:
-        await asyncio.sleep(PING_INTERVAL)
+        await asyncio.sleep(HEALTH_CHECK_INTERVAL)
         await check_all_servers()
 
 
@@ -233,6 +326,7 @@ async def choose_server():
 
 async def main():
     print(f"Load balancing algorithm: {ALGORITHM}")
+    print(f"Health-check mode: {HEALTH_MODE}")
 
     await check_all_servers()                                   # know the real state before accepting clients
     health_task = asyncio.create_task(health_check_loop())      # start the heartbeat in the background

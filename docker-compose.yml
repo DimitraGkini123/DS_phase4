@@ -13,6 +13,7 @@ services:
     command: python -u loadbalancer/loadbalancer.py
     environment: 
       LB_ALGORITHM: ${LB_ALGORITHM:-resource_based}
+      HEALTH_MODE: ${HEALTH_MODE:-icmp}
     depends_on: [server1, server2, server3]
     networks: [wordcount-net]
   server1:
