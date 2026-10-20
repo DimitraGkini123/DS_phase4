@@ -1,2 +1,6 @@
 .venv/
 __pycache__/
+.vscode/
+.venv/
+__pycache__/
+clientLog_*.csv
