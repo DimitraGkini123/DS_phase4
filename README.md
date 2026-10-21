@@ -25,6 +25,14 @@ Choose the load-balancing algorithm (`least_connections` or `resource_based`), t
 $env:LB_ALGORITHM = "least_connections"
 docker compose up -d --build redis server1 server2 server3 loadbalancer
 ```
+It also supports two alternative health-check mechanisms: (`icmp` and `udp` ) 
+
+### Example: Least Connections + ICMP
+
+```
+$env:LB_ALGORITHM = "least_connections"
+$env:HEALTH_MODE = "icmp"
+docker compose up -d --build redis server1 server2 server3 loadbalancer
 
 ### Run the client
 
@@ -38,10 +46,18 @@ To see which server handled each request and the per-server connection counts:
 docker compose logs loadbalancer
 ```
 
-### Stop
+### Simulate a server failure
+
+To stop one of the server replicas, first check the names of the running containers:
 
 ```
-docker compose down
+docker ps
+```
+
+Then stop one of the servers
+
+```
+docker stop ds_phase4-server-1-1
 ```
 
 ## Documentation
