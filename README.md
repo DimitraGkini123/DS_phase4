@@ -57,7 +57,7 @@ docker ps
 Then stop one of the servers
 
 ```
-docker stop ds_phase4-server-1-1
+docker stop ds_phase4-server1-1
 ```
 
 ## Documentation
