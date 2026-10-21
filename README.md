@@ -33,7 +33,7 @@ It also supports two alternative health-check mechanisms: (`icmp` and `udp` )
 $env:LB_ALGORITHM = "least_connections"
 $env:HEALTH_MODE = "icmp"
 docker compose up -d --build redis server1 server2 server3 loadbalancer
-
+```
 ### Run the client
 
 ```
